@@ -232,19 +232,19 @@ internal static class MonitorControl
     {
         const uint qdcOnlyActivePaths = 0x00000002;
         var result = new List<ActivePath>();
-        var status = NativeDisplay.GetDisplayConfigBufferSizes(qdcOnlyActivePaths, out var pathCount, out var modeCount);
-        if (status != 0) throw new IOException($"GetDisplayConfigBufferSizes failed ({status}).");
-        var paths = new NativeDisplay.PathInfo[pathCount];
-        var modes = new NativeDisplay.ModeInfo[modeCount];
-        status = NativeDisplay.QueryDisplayConfig(qdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero);
-        if (status == 122)
+        NativeDisplay.PathInfo[] paths = [];
+        uint pathCount = 0, modeCount = 0;
+        var status = 0;
+        for (var attempt = 0; attempt < 3; attempt++)
         {
             status = NativeDisplay.GetDisplayConfigBufferSizes(qdcOnlyActivePaths, out pathCount, out modeCount);
             if (status != 0) throw new IOException($"GetDisplayConfigBufferSizes failed ({status}).");
             paths = new NativeDisplay.PathInfo[pathCount];
-            modes = new NativeDisplay.ModeInfo[modeCount];
+            var modes = new NativeDisplay.ModeInfo[modeCount];
             status = NativeDisplay.QueryDisplayConfig(qdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero);
+            if (status != 122) break;
         }
+        if (status == 122) throw new IOException("Display configuration kept changing while it was being read.");
         if (status != 0) throw new IOException($"QueryDisplayConfig failed ({status}).");
         for (var i = 0; i < pathCount; i++)
         {

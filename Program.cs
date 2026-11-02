@@ -281,6 +281,7 @@ internal sealed class MainForm : Form
     private int nativeWidth;
     private int nativeHeight;
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 1000 };
+    private readonly System.Windows.Forms.Timer displayRefreshTimer = new() { Interval = 700 };
     private int secondsLeft;
     private int minimumRefresh;
     private DisplayMode? originalMode;
@@ -288,6 +289,7 @@ internal sealed class MainForm : Form
     private bool pending;
     private bool pendingDeviceOnly;
     private bool pendingMonitorsEnabled;
+    private bool refreshAfterOperation;
     private readonly HashSet<string> changedMonitorIds = new(StringComparer.OrdinalIgnoreCase);
 
     public MainForm()
@@ -455,6 +457,13 @@ internal sealed class MainForm : Form
         contentHost.Controls.Add(Label("Set a display mode, then confirm to keep it.", 9.5F, false, TextMuted, 26, 110, 440, 18));
         LayoutStatusArea();
         timer.Tick += Countdown;
+        displayRefreshTimer.Tick += async (_, _) =>
+        {
+            displayRefreshTimer.Stop();
+            if (pending || operationDepth > 0) { refreshAfterOperation = true; return; }
+            refreshAfterOperation = false;
+            await LoadMonitors();
+        };
         Load += async (_, _) =>
         {
             await LoadMonitors();
@@ -465,6 +474,7 @@ internal sealed class MainForm : Form
         {
             if (operationDepth > 0) { e.Cancel = true; return; }
             timer.Stop();
+            displayRefreshTimer.Stop();
             if (pending)
             {
                 try { recoveryGuard?.Send("RESTORING"); } catch { }
@@ -485,6 +495,21 @@ internal sealed class MainForm : Form
     {
         base.OnHandleCreated(e);
         Native.ApplyDarkWindowChrome(Handle);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        var refresh = m.Msg is 0x007E or 0x0219 ||
+            (m.Msg == 0x0218 && m.WParam.ToInt32() is 0x0006 or 0x0007 or 0x0012);
+        base.WndProc(ref m);
+        if (refresh) ScheduleDisplayRefresh();
+    }
+
+    private void ScheduleDisplayRefresh()
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        displayRefreshTimer.Stop();
+        displayRefreshTimer.Start();
     }
 
     private void LayoutStatusArea()
@@ -723,7 +748,14 @@ internal sealed class MainForm : Form
             return;
         }
         monitorStateButton.Text = "Revert";
-        var active = Native.GetMode(Native.ENUM_CURRENT_SETTINGS, selectedMonitor.DisplayDeviceName);
+        Native.DEVMODE active;
+        try { active = Native.GetMode(Native.ENUM_CURRENT_SETTINGS, selectedMonitor.DisplayDeviceName); }
+        catch (IOException)
+        {
+            monitorStateButton.Text = "Display unavailable";
+            monitorStateButton.Enabled = false;
+            return;
+        }
         var nativeResolution = NativeResolutionDetected &&
             active.Width == selectedMonitor.PreferredWidth && active.Height == selectedMonitor.PreferredHeight;
         var allMonitorsEnabled = monitorTargets.Count > 0 && monitorTargets.All(target => target.Enabled);
@@ -1068,7 +1100,15 @@ internal sealed class MainForm : Form
             await LoadMonitors();
             return;
         }
-        if (!pending) originalMode = CurrentMode();
+        if (!pending)
+        {
+            try { originalMode = CurrentMode(); }
+            catch (IOException ex)
+            {
+                status.Text = "Could not record the current display mode: " + ex.Message;
+                return;
+            }
+        }
         originalAmdScaling = null;
         originalIntelScaling = null;
         originalWindowsScaling = null;
@@ -1197,7 +1237,13 @@ internal sealed class MainForm : Form
             }
             return found;
         });
-        var current = Native.GetMode(Native.ENUM_CURRENT_SETTINGS, selectedMonitor.DisplayDeviceName);
+        Native.DEVMODE current;
+        try { current = Native.GetMode(Native.ENUM_CURRENT_SETTINGS, selectedMonitor.DisplayDeviceName); }
+        catch (IOException ex)
+        {
+            status.Text = "Could not read the current display mode: " + ex.Message;
+            return;
+        }
         var alreadyNative = current.Width == nativeWidth && current.Height == nativeHeight;
         if (nativeMode is null && !alreadyNative)
         {
@@ -1263,6 +1309,7 @@ internal sealed class MainForm : Form
         modePicker.Enabled = modeMenu.Items.Count > 0;
         UpdateMonitorStateButton();
         UpdateCurrentDisplay();
+        if (refreshAfterOperation) ScheduleDisplayRefresh();
     }
 
     private async Task RestoreMode()
@@ -1293,12 +1340,24 @@ internal sealed class MainForm : Form
         if (changedMonitorIds.Count == 0) monitorSnapshots.Clear();
         UpdateMonitorStateButton();
         UpdateCurrentDisplay();
+        if (refreshAfterOperation) ScheduleDisplayRefresh();
     }
 
     private void UpdateCurrentDisplay()
     {
-        var active = selectedMonitor is null ? Native.GetMode(Native.ENUM_CURRENT_SETTINGS) :
-            Native.GetMode(Native.ENUM_CURRENT_SETTINGS, selectedMonitor.DisplayDeviceName);
+        Native.DEVMODE active;
+        try
+        {
+            active = selectedMonitor is null ? Native.GetMode(Native.ENUM_CURRENT_SETTINGS) :
+                Native.GetMode(Native.ENUM_CURRENT_SETTINGS, selectedMonitor.DisplayDeviceName);
+        }
+        catch (IOException)
+        {
+            currentResolution.Text = "Unavailable";
+            currentRefresh.Text = "— Hz";
+            currentDisplayPill.Text = "DISPLAY UNAVAILABLE";
+            return;
+        }
         SetCurrentReadout(active.Width, active.Height, active.Frequency);
     }
 
@@ -1343,7 +1402,12 @@ internal sealed class MainForm : Form
     {
         public void Dispose()
         {
-            if (--form.operationDepth == 0) { form.contentHost.Enabled = true; form.UseWaitCursor = false; }
+            if (--form.operationDepth == 0)
+            {
+                form.contentHost.Enabled = true;
+                form.UseWaitCursor = false;
+                if (form.refreshAfterOperation && !form.pending) form.ScheduleDisplayRefresh();
+            }
         }
     }
     private async Task<(bool Success, string Error)> RestoreMonitorAsync()
@@ -1661,7 +1725,8 @@ internal static class Native
     internal static DEVMODE GetMode(uint mode, string? deviceName = null)
     {
         var dm = CreateMode();
-        EnumDisplaySettings(deviceName, mode, ref dm);
+        if (!EnumDisplaySettings(deviceName, mode, ref dm))
+            throw new IOException($"Windows could not read the current mode for {deviceName ?? "the primary display"}.");
         return dm;
     }
 }
