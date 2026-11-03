@@ -89,7 +89,8 @@ internal sealed class RecoveryGuard : IDisposable
                     return 0;
                 }
                 if (command is null) break;
-                if (command == "ARM") deadline = DateTime.UtcNow.AddSeconds(12);
+                // Leave room for the UI's 10-second confirmation timer and display-driver stalls.
+                if (command == "ARM") deadline = DateTime.UtcNow.AddSeconds(30);
                 if (command is "WORKING" or "RESTORING") deadline = DateTime.UtcNow.AddSeconds(30);
             }
             Restore(state);

@@ -287,6 +287,7 @@ internal sealed class MainForm : Form
     private DisplayMode? originalMode;
     private RecoveryGuard? recoveryGuard;
     private bool pending;
+    private bool confirmingMode;
     private bool pendingDeviceOnly;
     private bool pendingMonitorsEnabled;
     private bool refreshAfterOperation;
@@ -402,7 +403,7 @@ internal sealed class MainForm : Form
         apply.CenterText = true;
         apply.HoverColor = Color.FromArgb(215, 215, 215);
         apply.ShowArrow = true;
-        apply.Click += ApplyMode;
+        apply.Click += async (_, _) => await RunSafely(ApplyMode, "Apply failed");
 
         UpdateMonitorStateButton();
         monitorStateButton.SetBounds(392, 419, 340, 50);
@@ -411,7 +412,7 @@ internal sealed class MainForm : Form
         monitorStateButton.OutlineColor = Color.FromArgb(55, 55, 55);
         monitorStateButton.CornerRadius = 16;
         monitorStateButton.CenterText = true;
-        monitorStateButton.Click += RevertToNative;
+        monitorStateButton.Click += async (_, _) => await RunSafely(RevertToNative, "Revert failed");
 
         status.SetBounds(392, 481, 340, 42);
         status.AutoSize = false;
@@ -428,7 +429,7 @@ internal sealed class MainForm : Form
         keep.CornerRadius = 12;
         keep.CenterText = true;
         keep.Visible = false;
-        keep.Click += (_, _) => ConfirmMode();
+        keep.Click += async (_, _) => await RunSafely(ConfirmMode, "Confirm failed");
 
         revert.Text = "Revert safely";
         revert.SetBounds(564, 348, 168, 58);
@@ -438,7 +439,7 @@ internal sealed class MainForm : Form
         revert.CornerRadius = 12;
         revert.CenterText = true;
         revert.Visible = false;
-        revert.Click += async (_, _) => await RestoreMode();
+        revert.Click += async (_, _) => await RunSafely(RestoreMode, "Restore failed");
 
         keep.VisibleChanged += (_, _) => LayoutStatusArea();
         revert.VisibleChanged += (_, _) => LayoutStatusArea();
@@ -456,38 +457,43 @@ internal sealed class MainForm : Form
         contentHost.Controls.Add(Label("Stretch setup", 27F, true, TextPrimary, 24, 52, 460, 48));
         contentHost.Controls.Add(Label("Set a display mode, then confirm to keep it.", 9.5F, false, TextMuted, 26, 110, 440, 18));
         LayoutStatusArea();
-        timer.Tick += Countdown;
+        timer.Tick += async (_, _) => await RunSafely(Countdown, "Automatic restore failed");
         displayRefreshTimer.Tick += async (_, _) =>
         {
             displayRefreshTimer.Stop();
             if (pending || operationDepth > 0) { refreshAfterOperation = true; return; }
             refreshAfterOperation = false;
-            await LoadMonitors();
+            await RunSafely(() => LoadMonitors(), "Display refresh failed");
         };
         Load += async (_, _) =>
         {
-            await LoadMonitors();
+            await RunSafely(() => LoadMonitors(), "Startup failed");
             Opacity = 1;
             ShowInTaskbar = true;
         };
-        FormClosing += (sender, e) =>
+        var closeAfterRecovery = false;
+        FormClosing += async (sender, e) =>
         {
+            if (closeAfterRecovery) return;
             if (operationDepth > 0) { e.Cancel = true; return; }
             timer.Stop();
             displayRefreshTimer.Stop();
-            if (pending)
+            if (!pending) return;
+            e.Cancel = true;
+            Enabled = false;
+            try { recoveryGuard?.Send("RESTORING"); } catch { }
+            try
             {
-                try { recoveryGuard?.Send("RESTORING"); } catch { }
-                var monitorsRestored = RestoreSelectedMonitorState(out _);
-                var modeRestored = true;
-                var scalingRestored = true;
-                if (!pendingDeviceOnly)
-                {
-                    modeRestored = ChangeMode(originalMode) == Native.DISP_CHANGE_SUCCESSFUL;
-                    scalingRestored = RestoreGpuScaling();
-                }
-                if (monitorsRestored && modeRestored && scalingRestored) FinishRecoveryGuard();
+                var monitorsRestored = await Task.Run(() => RestoreSelectedMonitorState(out _));
+                var (modeRestored, scalingRestored) = pendingDeviceOnly
+                    ? (true, true)
+                    : await Task.Run(() => (ChangeMode(originalMode) == Native.DISP_CHANGE_SUCCESSFUL, RestoreGpuScaling()));
+                if (monitorsRestored && modeRestored && scalingRestored) await Task.Run(FinishRecoveryGuard);
             }
+            catch { /* The watchdog restores the saved state if shutdown recovery fails. */ }
+            closeAfterRecovery = true;
+            Enabled = true;
+            Close();
         };
     }
 
@@ -748,6 +754,11 @@ internal sealed class MainForm : Form
             return;
         }
         monitorStateButton.Text = "Revert";
+        if (pending)
+        {
+            monitorStateButton.Enabled = false;
+            return;
+        }
         Native.DEVMODE active;
         try { active = Native.GetMode(Native.ENUM_CURRENT_SETTINGS, selectedMonitor.DisplayDeviceName); }
         catch (IOException)
@@ -1047,10 +1058,11 @@ internal sealed class MainForm : Form
         finally { recoveryGuard.Dispose(); recoveryGuard = null; }
     }
 
-    private async void ApplyMode(object? sender, EventArgs e)
+    private async Task ApplyMode()
     {
         if (!EnsureElevatedInstance()) return;
         using var busy = BeginOperation();
+        status.Text = "Checking display state…";
         if (selectedMode is not DisplayMode selected) return;
         if (selectedMonitor is null)
         {
@@ -1137,16 +1149,17 @@ internal sealed class MainForm : Form
                 }
             }
         }
-        try { StartRecoveryGuard(); }
+        try { await Task.Run(StartRecoveryGuard); }
         catch (Exception ex)
         {
             status.Text = "Cannot prepare automatic recovery: " + ex.Message;
             return;
         }
-        var result = ChangeMode(selected);
+        status.Text = "Applying resolution…";
+        var result = await Task.Run(() => ChangeMode(selected));
         if (result != Native.DISP_CHANGE_SUCCESSFUL)
         {
-            FinishRecoveryGuard();
+            await Task.Run(FinishRecoveryGuard);
             status.Text = $"Windows couldn't apply {selected.Width} × {selected.Height} at {selected.Frequency} Hz (code {result}).";
             status.ForeColor = TextPrimary;
             return;
@@ -1154,6 +1167,7 @@ internal sealed class MainForm : Form
         try
         {
             recoveryGuard!.Send("WORKING");
+            status.Text = "Applying fullscreen scaling…";
             if (originalAmdScaling is not null)
                 await Task.Run(() => AmdScaling.ApplyFullPanel(originalAmdScaling));
             else if (originalIntelScaling is not null)
@@ -1171,6 +1185,7 @@ internal sealed class MainForm : Form
             return;
         }
         pendingMonitorsEnabled = false;
+        status.Text = "Updating monitor devices…";
         var (disabledAll, disableError) = await SetAllMonitorsAsync(false);
         if (!disabledAll)
         {
@@ -1202,11 +1217,12 @@ internal sealed class MainForm : Form
         status.Text = $"{selectedMonitor.ModelName} updated. Keep within {secondsLeft}s or everything rolls back.";
     }
 
-    private async void RevertToNative(object? sender, EventArgs e)
+    private async Task RevertToNative()
     {
         if (!EnsureElevatedInstance()) return;
         using var busy = BeginOperation();
         if (pending) return;
+        status.Text = "Restoring native display…";
         if (selectedMonitor is null || !selectedMonitor.CanChangeIndependently)
         {
             status.Text = "Choose an independently active monitor first.";
@@ -1251,7 +1267,7 @@ internal sealed class MainForm : Form
             status.ForeColor = TextPrimary;
             return;
         }
-        var result = alreadyNative ? Native.DISP_CHANGE_SUCCESSFUL : ChangeMode(nativeMode);
+        var result = alreadyNative ? Native.DISP_CHANGE_SUCCESSFUL : await Task.Run(() => ChangeMode(nativeMode));
         status.ForeColor = TextPrimary;
         if (result != Native.DISP_CHANGE_SUCCESSFUL)
         {
@@ -1272,7 +1288,7 @@ internal sealed class MainForm : Form
         status.Text = $"Native resolution restored: {nativeWidth} × {nativeHeight}. All monitors enabled.";
     }
 
-    private async void Countdown(object? sender, EventArgs e)
+    private async Task Countdown()
     {
         secondsLeft--;
         if (secondsLeft <= 0) { await RestoreMode(); return; }
@@ -1281,14 +1297,19 @@ internal sealed class MainForm : Form
             : $"{selectedMonitor?.ModelName ?? "Monitor"} updated. Keep within {secondsLeft}s or everything rolls back.";
     }
 
-    private void ConfirmMode()
+    private async Task ConfirmMode()
     {
-        if (!FinishRecoveryGuard())
+        if (!pending || confirmingMode) return;
+        confirmingMode = true;
+        timer.Stop();
+        keep.Enabled = false;
+        revert.Enabled = false;
+        if (!await Task.Run(FinishRecoveryGuard))
         {
+            confirmingMode = false;
             _ = RestoreMode();
             return;
         }
-        timer.Stop();
         pending = false;
         apply.Enabled = modeMenu.Items.Count > 0 && selectedMonitor?.CanChangeIndependently == true;
         keep.Visible = false;
@@ -1309,6 +1330,7 @@ internal sealed class MainForm : Form
         modePicker.Enabled = modeMenu.Items.Count > 0;
         UpdateMonitorStateButton();
         UpdateCurrentDisplay();
+        confirmingMode = false;
         if (refreshAfterOperation) ScheduleDisplayRefresh();
     }
 
@@ -1316,13 +1338,15 @@ internal sealed class MainForm : Form
     {
         using var busy = BeginOperation();
         timer.Stop();
+        status.Text = "Restoring saved display state…";
         try { recoveryGuard?.Send("RESTORING"); } catch { }
         var wasDeviceOnly = pendingDeviceOnly;
         var (monitorRestored, monitorError) = await RestoreMonitorAsync();
-        var modeRestored = wasDeviceOnly || originalMode is null || ChangeMode(originalMode) == Native.DISP_CHANGE_SUCCESSFUL;
-        var scalingRestored = wasDeviceOnly || RestoreGpuScaling();
+        var (modeRestored, scalingRestored) = wasDeviceOnly
+            ? (true, true)
+            : await Task.Run(() => (originalMode is null || ChangeMode(originalMode) == Native.DISP_CHANGE_SUCCESSFUL, RestoreGpuScaling()));
         var restored = monitorRestored && modeRestored && scalingRestored;
-        if (restored) FinishRecoveryGuard();
+        if (restored) await Task.Run(FinishRecoveryGuard);
         pending = !restored;
         pendingDeviceOnly = !restored && wasDeviceOnly;
         apply.Enabled = restored && modeMenu.Items.Count > 0 && selectedMonitor?.CanChangeIndependently == true;
@@ -1391,6 +1415,26 @@ internal sealed class MainForm : Form
 
     private readonly Panel contentHost = new() { Dock = DockStyle.Fill };
     private int operationDepth;
+    private async Task RunSafely(Func<Task> action, string label)
+    {
+        try { await action(); }
+        catch (Exception ex)
+        {
+            var message = label + ": " + ex.Message;
+            if (recoveryGuard is not null && !confirmingMode)
+            {
+                try
+                {
+                    await RestoreMode();
+                    message += pending ? " Restore needs attention." : " Original display restored.";
+                }
+                catch (Exception restoreError) { message += " Recovery is still active: " + restoreError.Message; }
+            }
+            status.ForeColor = TextPrimary;
+            status.Text = message;
+        }
+    }
+
     private IDisposable BeginOperation()
     {
         operationDepth++;
