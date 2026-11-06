@@ -31,13 +31,17 @@ internal sealed class DisplayMode
     {
         get
         {
+            if (Width <= 0 || Height <= 0) return "—";
             var ratio = (double)Width / Height;
             if (Math.Abs(ratio - 4.0 / 3) < 0.015) return "4:3";
             if (Math.Abs(ratio - 5.0 / 4) < 0.015) return "5:4";
             if (Math.Abs(ratio - 16.0 / 9) < 0.015) return "16:9";
             if (Math.Abs(ratio - 16.0 / 10) < 0.015) return "16:10";
             if (Math.Abs(ratio - 21.0 / 9) < 0.015) return "21:9";
-            return "Other";
+            var a = Width;
+            var b = Height;
+            while (b != 0) (a, b) = (b, a % b);
+            return $"{Width / a}:{Height / a}";
         }
     }
     public override string ToString() => $"{Width} × {Height}     {Frequency} Hz     {AspectRatio}";
@@ -46,13 +50,14 @@ internal sealed class DisplayMode
 internal sealed class SoftSelectorButton : Button
 {
     internal Color ParentColor = Color.Black;
-    internal Color OutlineColor = Color.FromArgb(52, 52, 52);
+    internal Color OutlineColor = Color.FromArgb(56, 56, 58);
     internal int CornerRadius = 13;
-    internal Color HoverColor = Color.FromArgb(39, 39, 39);
+    internal Color HoverColor = Color.FromArgb(58, 58, 60);
     internal bool ShowOutline = true;
     internal bool ShowChevron;
     internal bool ShowArrow;
     internal bool CenterText;
+    internal DisplayMode? ModeInfo;
     internal MonitorTarget? MonitorInfo;
     private bool hovered;
     private bool pressed;
@@ -77,7 +82,7 @@ internal sealed class SoftSelectorButton : Button
         g.Clear(ParentColor);
         var rect = new RectangleF(0.75f, 0.75f, Width - 1.5f, Height - 1.5f);
         using var path = MainForm.RoundedPathForSelector(rect, CornerRadius);
-        var fill = pressed ? (CenterText ? Color.FromArgb(208, 208, 208) : Color.FromArgb(45, 45, 45)) : hovered ? HoverColor : BackColor;
+        var fill = pressed ? (CenterText ? Color.FromArgb(208, 208, 208) : Color.FromArgb(58, 58, 60)) : hovered ? HoverColor : BackColor;
         using var brush = new SolidBrush(fill);
         using var pen = new Pen(OutlineColor, 1f);
         g.FillPath(brush, path);
@@ -88,17 +93,25 @@ internal sealed class SoftSelectorButton : Button
             var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
                 TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
             TextRenderer.DrawText(g, monitor.ModelName, Font,
-                new Rectangle(14, 0, 84, Height), ForeColor, flags);
+                new Rectangle(14, 0, 82, Height), ForeColor, flags);
             TextRenderer.DrawText(g, $"{monitor.RefreshHz} Hz", Font,
-                new Rectangle(106, 0, 55, Height), ForeColor, flags);
+                new Rectangle(100, 0, 48, Height), ForeColor, flags);
             TextRenderer.DrawText(g, monitor.Enabled ? "enabled" : "disabled", Font,
-                new Rectangle(169, 0, 60, Height), ForeColor, flags);
+                new Rectangle(153, 0, 58, Height), ForeColor, flags);
+        }
+        else if (ModeInfo is { } mode)
+        {
+            var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
+            TextRenderer.DrawText(g, $"{mode.Width} × {mode.Height}", Font, new Rectangle(12, 0, 90, Height), ForeColor, flags);
+            TextRenderer.DrawText(g, $"{mode.Frequency} Hz", Font, new Rectangle(110, 0, 44, Height), ForeColor, flags);
+            TextRenderer.DrawText(g, mode.AspectRatio, Font, new Rectangle(162, 0, 46, Height), ForeColor, flags);
         }
         else
         {
+            var rightInset = ShowChevron ? 34 : 24;
             var textRect = CenterText
                 ? new Rectangle(10, 0, Math.Max(0, Width - (ShowArrow ? 44 : 20)), Height)
-                : new Rectangle(12, 0, Math.Max(0, Width - (ShowChevron ? 34 : 24)), Height);
+                : new Rectangle(12, 0, Math.Max(0, Width - rightInset), Height);
             TextRenderer.DrawText(g, Text, Font, textRect, Enabled ? ForeColor : MainForm.TextMuted,
                 (CenterText ? TextFormatFlags.HorizontalCenter : TextFormatFlags.Left) | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
         }
@@ -147,8 +160,8 @@ internal sealed class PillLabel : Control
         g.Clear(Parent?.BackColor ?? Color.Black);
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
         using var path = MainForm.RoundedPathForSelector(rect, Height / 2);
-        using var fill = new SolidBrush(Color.FromArgb(35, 35, 35));
-        using var border = new Pen(Color.FromArgb(59, 59, 59), 1f);
+        using var fill = new SolidBrush(Color.FromArgb(37, 37, 39));
+        using var border = new Pen(Color.FromArgb(58, 58, 60), 1f);
         g.FillPath(fill, path);
         g.DrawPath(border, path);
         TextRenderer.DrawText(g, Text, Font, ClientRectangle, ForeColor,
@@ -211,9 +224,9 @@ internal sealed class MonochromeIcon : Control
 
 internal sealed class SoftSurfacePanel : Panel
 {
-    internal Color ParentColor = Color.FromArgb(12, 12, 12);
-    internal Color OutlineColor = Color.FromArgb(35, 35, 35);
-    internal int CornerRadius = 16;
+    internal Color ParentColor = Color.FromArgb(17, 17, 19);
+    internal Color OutlineColor = Color.FromArgb(56, 56, 58);
+    internal int CornerRadius = 14;
 
     internal SoftSurfacePanel()
     {
@@ -245,14 +258,14 @@ internal sealed class MainForm : Form
         (1440, 1080), (1568, 1050), (1024, 768),
         (1568, 1080), (1440, 992), (1280, 882)
     ];
-    private static readonly Color Background = Color.FromArgb(11, 11, 11);
-    private static readonly Color Surface = Color.FromArgb(22, 22, 22);
-    private static readonly Color SurfaceRaised = Color.FromArgb(31, 31, 31);
+    private static readonly Color Background = Color.FromArgb(17, 17, 19);
+    private static readonly Color Surface = Color.FromArgb(28, 28, 30);
+    private static readonly Color SurfaceRaised = Color.FromArgb(44, 44, 46);
     private static readonly Color TextPrimary = Color.FromArgb(255, 255, 255);
-    internal static readonly Color TextMuted = Color.FromArgb(160, 160, 160);
+    internal static readonly Color TextMuted = Color.FromArgb(161, 161, 166);
     private static readonly Color Accent = Color.FromArgb(255, 255, 255);
     private static readonly Color AccentText = Color.FromArgb(8, 8, 8);
-    private static readonly Color Border = Color.FromArgb(48, 48, 48);
+    private static readonly Color Border = Color.FromArgb(56, 56, 58);
 
     private readonly SoftSelectorButton modePicker = new();
     private readonly SoftSelectorButton customButton = new();
@@ -298,7 +311,7 @@ internal sealed class MainForm : Form
         Text = "Display Preset Tool";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         ShowIcon = true;
-        ClientSize = new Size(760, 560);
+        ClientSize = new Size(420, 600);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Background;
         ForeColor = TextPrimary;
@@ -308,42 +321,43 @@ internal sealed class MainForm : Form
         Opacity = 0;
         ShowInTaskbar = false;
 
-        var currentCard = Card(new Rectangle(392, 142, 340, 196));
-        var monitorIcon = new MonochromeIcon { Kind = IconKind.Monitor, Bounds = new Rectangle(22, 20, 18, 18), ForeColor = TextMuted, BackColor = Color.Transparent };
-        var currentEyebrow = Label("LIVE DISPLAY", 8.5F, true, TextMuted, 48, 21, 220, 16);
-        currentResolution.SetBounds(22, 63, 296, 52);
-        currentResolution.Font = new Font("Segoe UI Semibold", 30F);
+        var currentCard = Card(new Rectangle(20, 88, 380, 100));
+        var monitorIcon = new MonochromeIcon { Kind = IconKind.Monitor, Bounds = new Rectangle(20, 15, 18, 18), ForeColor = TextMuted, BackColor = Color.Transparent };
+        var currentEyebrow = Label("Current display", 9F, true, TextMuted, 46, 16, 220, 16);
+        currentResolution.SetBounds(18, 35, 216, 38);
+        currentResolution.Font = new Font("Segoe UI Semibold", 22F);
+        currentResolution.AutoEllipsis = true;
         currentResolution.ForeColor = TextPrimary;
-        currentRefresh.SetBounds(22, 120, 180, 36);
-        currentRefresh.Font = new Font("Segoe UI Semibold", 17F);
+        currentRefresh.SetBounds(256, 36, 104, 36);
+        currentRefresh.Font = new Font("Segoe UI Semibold", 20F);
         currentRefresh.ForeColor = TextPrimary;
         currentRefresh.BackColor = Color.Transparent;
         currentRefresh.TextAlign = ContentAlignment.MiddleLeft;
-        var displayDivider = new Panel { Bounds = new Rectangle(22, 113, 296, 1), BackColor = Border };
+        var displayDivider = new Panel { Bounds = new Rectangle(240, 38, 1, 32), BackColor = Border };
         currentDisplayPill.Text = "QHD  ·  16:9";
-        currentDisplayPill.SetBounds(22, 160, 116, 24);
+        currentDisplayPill.SetBounds(18, 74, 116, 20);
         currentDisplayPill.Font = new Font("Segoe UI Semibold", 8.5F);
         currentDisplayPill.ForeColor = TextMuted;
         currentCard.Controls.AddRange([monitorIcon, currentEyebrow, currentResolution, displayDivider, currentRefresh, currentDisplayPill]);
 
-        var modeCard = Card(new Rectangle(24, 142, 344, 334));
-        var settingsHeading = Label("Choose a mode", 17F, true, TextPrimary, 20, 18, 250, 28);
-        var targetLabel = Label("TARGET MONITOR", 8F, true, TextMuted, 20, 48, 300, 16);
-        monitorPicker.SetBounds(20, 76, 304, 40);
+        var modeCard = Card(new Rectangle(20, 202, 380, 202));
+        var settingsHeading = Label("Display settings", 18F, true, TextPrimary, 20, 16, 300, 30);
+        var targetLabel = Label("Target monitor", 9F, true, TextMuted, 20, 50, 300, 16);
+        monitorPicker.SetBounds(20, 70, 230, 40);
         monitorPicker.BackColor = SurfaceRaised;
         monitorPicker.ForeColor = TextPrimary;
         monitorPicker.Font = new Font("Segoe UI Semibold", 9.5F);
         monitorPicker.FlatStyle = FlatStyle.Flat;
         monitorPicker.FlatAppearance.BorderSize = 0;
         monitorPicker.FlatAppearance.BorderColor = SurfaceRaised;
-        monitorPicker.FlatAppearance.MouseOverBackColor = Color.FromArgb(42, 42, 42);
+        monitorPicker.FlatAppearance.MouseOverBackColor = Color.FromArgb(58, 58, 60);
         monitorPicker.TextAlign = ContentAlignment.MiddleLeft;
         monitorPicker.Padding = new Padding(10, 0, 10, 0);
         monitorPicker.UseVisualStyleBackColor = false;
         monitorPicker.Cursor = Cursors.Hand;
         monitorPicker.ParentColor = Surface;
-        monitorPicker.CornerRadius = 13;
-        monitorPicker.OutlineColor = Color.FromArgb(52, 52, 52);
+        monitorPicker.CornerRadius = 12;
+        monitorPicker.OutlineColor = Border;
         monitorPicker.ShowChevron = true;
         monitorMenu.ShowImageMargin = false;
         monitorMenu.ShowCheckMargin = false;
@@ -355,30 +369,30 @@ internal sealed class MainForm : Form
         monitorMenu.Renderer = new SoftMenuRenderer();
         RoundControl(monitorMenu, 10);
         AttachTogglePickerMenu(monitorPicker, monitorMenu);
-        var modeLabel = Label("STRETCH RESOLUTION", 8F, true, TextMuted, 20, 137, 300, 16);
-        modePicker.SetBounds(20, 158, 304, 42);
+        var modeLabel = Label("Stretch resolution", 9F, true, TextMuted, 20, 122, 300, 16);
+        modePicker.SetBounds(20, 142, 230, 42);
         modePicker.FlatStyle = FlatStyle.Flat;
         modePicker.FlatAppearance.BorderSize = 0;
         modePicker.FlatAppearance.BorderColor = SurfaceRaised;
-        modePicker.FlatAppearance.MouseOverBackColor = Color.FromArgb(42, 42, 42);
+        modePicker.FlatAppearance.MouseOverBackColor = Color.FromArgb(58, 58, 60);
         modePicker.BackColor = SurfaceRaised;
         modePicker.ForeColor = TextPrimary;
-        modePicker.Font = new Font("Segoe UI Semibold", 11F);
+        modePicker.Font = new Font("Segoe UI Semibold", 9.5F);
         modePicker.TextAlign = ContentAlignment.MiddleLeft;
         modePicker.Padding = new Padding(12, 0, 8, 0);
         modePicker.UseVisualStyleBackColor = false;
         modePicker.Cursor = Cursors.Hand;
         modePicker.ParentColor = Surface;
-        modePicker.OutlineColor = Color.FromArgb(52, 52, 52);
-        modePicker.CornerRadius = 13;
-        modePicker.HoverColor = Color.FromArgb(39, 39, 39);
+        modePicker.OutlineColor = Border;
+        modePicker.CornerRadius = 12;
+        modePicker.HoverColor = Color.FromArgb(58, 58, 60);
         modePicker.ShowChevron = true;
         customButton.Text = "+ Custom";
-        customButton.SetBounds(20, 215, 304, 42);
+        customButton.SetBounds(260, 142, 100, 42);
         customButton.BackColor = SurfaceRaised;
         customButton.ForeColor = TextPrimary;
         customButton.ParentColor = Surface;
-        customButton.Font = new Font("Segoe UI Semibold", 10F);
+        customButton.Font = new Font("Segoe UI Semibold", 9.5F);
         customButton.CenterText = true;
         customButton.Cursor = Cursors.Hand;
         customButton.Click += (_, _) => { if (!pending && selectedMonitor is not null) ShowCustomResolution(); };
@@ -388,55 +402,55 @@ internal sealed class MainForm : Form
         modeMenu.ShowCheckMargin = false;
         modeMenu.BackColor = SurfaceRaised;
         modeMenu.ForeColor = TextPrimary;
-        modeMenu.Font = new Font("Segoe UI", 10F);
+        modeMenu.Font = new Font("Segoe UI", 9.5F);
         modeMenu.Renderer = new SoftMenuRenderer();
         RoundControl(modeMenu, 12);
-        modeCard.Controls.AddRange([settingsHeading, targetLabel, monitorPicker, modeLabel, modePicker,
-            Label("Modes are filtered for this display.", 9F, false, TextMuted, 20, 274, 300, 20)]);
+        modeCard.Controls.AddRange([settingsHeading, targetLabel, monitorPicker, modeLabel, modePicker]);
 
         apply.Text = "Apply stretch preset";
-        apply.SetBounds(392, 348, 340, 58);
+        apply.SetBounds(20, 418, 380, 54);
         StyleButton(apply, ButtonKind.Primary);
         apply.ParentColor = Background;
         apply.OutlineColor = Color.FromArgb(235, 235, 235);
-        apply.CornerRadius = 18;
+        apply.CornerRadius = 16;
         apply.CenterText = true;
         apply.HoverColor = Color.FromArgb(215, 215, 215);
         apply.ShowArrow = true;
         apply.Click += async (_, _) => await RunSafely(ApplyMode, "Apply failed");
 
         UpdateMonitorStateButton();
-        monitorStateButton.SetBounds(392, 419, 340, 50);
+        monitorStateButton.SetBounds(20, 482, 380, 48);
         StyleButton(monitorStateButton, ButtonKind.Secondary);
         monitorStateButton.ParentColor = Background;
-        monitorStateButton.OutlineColor = Color.FromArgb(55, 55, 55);
-        monitorStateButton.CornerRadius = 16;
+        monitorStateButton.OutlineColor = Border;
+        monitorStateButton.CornerRadius = 14;
         monitorStateButton.CenterText = true;
         monitorStateButton.Click += async (_, _) => await RunSafely(RevertToNative, "Revert failed");
 
-        status.SetBounds(392, 481, 340, 42);
+        status.SetBounds(20, 536, 380, 42);
         status.AutoSize = false;
+        status.AutoEllipsis = true;
         status.Font = new Font("Segoe UI", 8F);
         status.ForeColor = TextMuted;
         status.TextAlign = ContentAlignment.MiddleCenter;
         status.Text = "Your current display mode is safe until you apply a change.";
 
         keep.Text = "Keep changes";
-        keep.SetBounds(392, 348, 164, 58);
+        keep.SetBounds(20, 418, 184, 54);
         StyleButton(keep, ButtonKind.Secondary);
         keep.ParentColor = Background;
-        keep.OutlineColor = Color.FromArgb(55, 55, 55);
-        keep.CornerRadius = 12;
+        keep.OutlineColor = Border;
+        keep.CornerRadius = 14;
         keep.CenterText = true;
         keep.Visible = false;
         keep.Click += async (_, _) => await RunSafely(ConfirmMode, "Confirm failed");
 
         revert.Text = "Revert safely";
-        revert.SetBounds(564, 348, 168, 58);
+        revert.SetBounds(212, 418, 188, 54);
         StyleButton(revert, ButtonKind.Secondary);
         revert.ParentColor = Background;
-        revert.OutlineColor = Color.FromArgb(55, 55, 55);
-        revert.CornerRadius = 12;
+        revert.OutlineColor = Border;
+        revert.CornerRadius = 14;
         revert.CenterText = true;
         revert.Visible = false;
         revert.Click += async (_, _) => await RunSafely(RestoreMode, "Restore failed");
@@ -453,9 +467,8 @@ internal sealed class MainForm : Form
         Controls.Add(contentHost);
         monitorMenu.Opening += (_, _) => PreparePickerMenu(monitorMenu, monitorPicker.Width);
         modeMenu.Opening += (_, _) => PreparePickerMenu(modeMenu, modePicker.Width);
-        contentHost.Controls.Add(Label("DPT   /   DISPLAY PRESET TOOL", 9F, true, TextMuted, 26, 32, 320, 18));
-        contentHost.Controls.Add(Label("Stretch setup", 27F, true, TextPrimary, 24, 52, 460, 48));
-        contentHost.Controls.Add(Label("Set a display mode, then confirm to keep it.", 9.5F, false, TextMuted, 26, 110, 440, 18));
+        contentHost.Controls.Add(Label("Display presets", 18F, true, TextPrimary, 20, 24, 360, 38));
+        contentHost.Controls.Add(Label("Choose a display mode and confirm to keep it.", 9.5F, false, TextMuted, 20, 62, 360, 20));
         LayoutStatusArea();
         timer.Tick += async (_, _) => await RunSafely(Countdown, "Automatic restore failed");
         displayRefreshTimer.Tick += async (_, _) =>
@@ -530,9 +543,9 @@ internal sealed class MainForm : Form
         status.Top = monitorStateButton.Bottom + 6;
         var hasStatus = !string.IsNullOrWhiteSpace(status.Text);
         status.Visible = hasStatus;
-        var height = (hasStatus ? status.Bottom : monitorStateButton.Bottom) + 8;
+        var height = (hasStatus ? status.Bottom : monitorStateButton.Bottom) + 12;
         if (ClientSize.Height != Math.Max(height, 520))
-            ClientSize = new Size(760, Math.Max(height, 520));
+            ClientSize = new Size(420, Math.Max(height, 520));
     }
 
     private static void AttachTogglePickerMenu(Control picker, ContextMenuStrip menu, Func<bool>? canOpen = null)
@@ -583,7 +596,7 @@ internal sealed class MainForm : Form
         }
         var widthBox = Input(20, (selectedMode?.Width ?? 1440).ToString());
         var heightBox = Input(200, (selectedMode?.Height ?? 1080).ToString());
-        var feedback = Label("Uses the highest available refresh rate.", 9F, false, TextMuted, 20, 136, 330, 54);
+        var feedback = Label("Tests at the current refresh rate. Unsupported modes may need CRU or GPU software.", 9F, false, TextMuted, 20, 136, 330, 54);
         dialog.Controls.Add(feedback);
         var use = new SoftSelectorButton { Bounds = new Rectangle(20, 202, 330, 44), Text = "Use resolution", BackColor = SurfaceRaised, ForeColor = TextPrimary, ParentColor = Background, CenterText = true, Font = new Font("Segoe UI Semibold", 10F), Cursor = Cursors.Hand };
         dialog.Controls.Add(use);
@@ -615,13 +628,21 @@ internal sealed class MainForm : Form
                         if (candidate.Width == width && candidate.Height == height && candidate.Frequency > bestHz)
                         { bestHz = candidate.Frequency; dm = candidate; }
                     }
-                    if (bestHz == 0) return (Mode: (DisplayMode?)null, Error: "This resolution is not listed by your driver. Add it in your graphics driver first.");
-                    if (bestHz < requiredHz) return (Mode: (DisplayMode?)null, Error: "This size only supports a lower refresh rate on your display.");
+                    if (bestHz > 0 && bestHz < requiredHz)
+                        return (Mode: (DisplayMode?)null, Error: "This size only supports a lower refresh rate on your display.");
+                    if (bestHz == 0)
+                    {
+                        dm = Native.GetMode(Native.ENUM_CURRENT_SETTINGS, device);
+                        dm.Frequency = dm.Frequency > 1 ? dm.Frequency : requiredHz;
+                    }
                     dm.Width = width;
                     dm.Height = height;
                     dm.Fields |= Native.DM_PELSWIDTH | Native.DM_PELSHEIGHT | Native.DM_DISPLAYFREQUENCY;
                     var code = Native.ChangeDisplaySettings(device, ref dm, Native.CDS_TEST);
-                    if (code != Native.DISP_CHANGE_SUCCESSFUL) return (Mode: (DisplayMode?)null, Error: "Windows doesn't support this mode yet. Add it in your graphics driver first.");
+                    if (code != Native.DISP_CHANGE_SUCCESSFUL)
+                        return (Mode: (DisplayMode?)null, Error: bestHz == 0
+                            ? "The display driver rejected this custom mode. Add it with CRU or your GPU software, restart the display driver, then reopen DPT."
+                            : "Windows rejected this mode (code " + code + ").");
                     return (Mode: (DisplayMode?)new DisplayMode { DeviceName = device, Width = width, Height = height, Frequency = dm.Frequency, NativeMode = dm }, Error: "");
                 });
                 if (result.Mode is null) { feedback.Text = result.Error; return; }
@@ -630,7 +651,7 @@ internal sealed class MainForm : Form
                 item.Click += SelectMode;
                 modeMenu.Items.Add(item);
                 SortStretchMenu();
-                modePicker.Text = $"{result.Mode.Width} × {result.Mode.Height}   ·   {result.Mode.Frequency} Hz";
+                SetModePickerText(result.Mode, $"{result.Mode.Width} × {result.Mode.Height} · {result.Mode.Frequency}Hz");
                 FitModePicker();
                 modePicker.Enabled = true;
                 apply.Enabled = selectedMonitor?.CanChangeIndependently == true;
@@ -648,8 +669,15 @@ internal sealed class MainForm : Form
     {
         if (sender is not ToolStripMenuItem { Tag: DisplayMode mode }) return;
         selectedMode = mode;
-        modePicker.Text = $"{mode.Width} × {mode.Height}   ·   {mode.Frequency} Hz";
+        SetModePickerText(mode, $"{mode.Width} × {mode.Height} · {mode.Frequency}Hz");
         FitModePicker();
+    }
+
+    private void SetModePickerText(DisplayMode? mode, string text)
+    {
+        modePicker.Text = text;
+        modePicker.ModeInfo = mode;
+        modePicker.Invalidate();
     }
 
     private void UpdateMonitorPicker()
@@ -672,7 +700,7 @@ internal sealed class MainForm : Form
         selectedMonitor = target;
         selectedMode = null;
         modeMenu.Items.Clear();
-        modePicker.Text = "Loading display modes…";
+        SetModePickerText(null, "Loading display modes…");
         modePicker.Enabled = false;
         apply.Enabled = false;
         UpdateMonitorPicker();
@@ -730,7 +758,7 @@ internal sealed class MainForm : Form
             modeMenu.Items.Clear();
             monitorPicker.MonitorInfo = null;
             monitorPicker.Enabled = false;
-            modePicker.Text = "Select an active display first";
+            SetModePickerText(null, "Select an active display first");
             modePicker.Enabled = false;
             monitorStateButton.Enabled = false;
             apply.Enabled = false;
@@ -777,13 +805,13 @@ internal sealed class MainForm : Form
     private sealed class DarkColorTable : ProfessionalColorTable
     {
         public override Color ToolStripDropDownBackground => SurfaceRaised;
-        public override Color MenuBorder => Color.FromArgb(52, 52, 52);
-        public override Color MenuItemBorder => Color.FromArgb(68, 68, 68);
-        public override Color MenuItemSelected => Color.FromArgb(42, 42, 42);
-        public override Color MenuItemSelectedGradientBegin => Color.FromArgb(42, 42, 42);
-        public override Color MenuItemSelectedGradientEnd => Color.FromArgb(42, 42, 42);
-        public override Color MenuItemPressedGradientBegin => Color.FromArgb(36, 36, 36);
-        public override Color MenuItemPressedGradientEnd => Color.FromArgb(36, 36, 36);
+        public override Color MenuBorder => Color.FromArgb(56, 56, 58);
+        public override Color MenuItemBorder => Color.FromArgb(68, 68, 70);
+        public override Color MenuItemSelected => Color.FromArgb(58, 58, 60);
+        public override Color MenuItemSelectedGradientBegin => Color.FromArgb(58, 58, 60);
+        public override Color MenuItemSelectedGradientEnd => Color.FromArgb(58, 58, 60);
+        public override Color MenuItemPressedGradientBegin => Color.FromArgb(50, 50, 52);
+        public override Color MenuItemPressedGradientEnd => Color.FromArgb(50, 50, 52);
     }
 
     private void PreparePickerMenu(ContextMenuStrip menu, int width)
@@ -792,15 +820,6 @@ internal sealed class MainForm : Form
         var monitorLayout = ReferenceEquals(menu, monitorMenu);
         var rowHeight = monitorLayout ? 36 : 40;
         menu.Font = new Font("Segoe UI", 9.5F);
-        var neededWidth = menu.Items.Cast<ToolStripMenuItem>().Select(item => item.Tag switch
-        {
-            DisplayMode mode => TextRenderer.MeasureText($"{mode.Width} × {mode.Height}", menu.Font,
-                Size.Empty, TextFormatFlags.NoPadding).Width + 108,
-            MonitorTarget => 250,
-            _ => TextRenderer.MeasureText(item.Text, menu.Font,
-                Size.Empty, TextFormatFlags.NoPadding).Width + 56
-        }).DefaultIfEmpty(140).Max();
-        width = Math.Max(140, Math.Min(width, neededWidth));
         foreach (ToolStripMenuItem item in menu.Items)
         {
             item.AutoSize = false;
@@ -819,9 +838,9 @@ internal sealed class MainForm : Form
 
     private void FitModePicker()
     {
-        modePicker.Width = 304;
-        customButton.Left = 20;
-        customButton.Width = 304;
+        modePicker.Width = 230;
+        customButton.Left = 260;
+        customButton.Width = 100;
     }
 
     private void SortStretchMenu()
@@ -853,7 +872,7 @@ internal sealed class MainForm : Form
             var item = (ToolStripMenuItem)e.Item;
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             using var path = RoundedPathForSelector(new RectangleF(1, 2, item.Width - 2, item.Height - 4), 9);
-            using var fill = new SolidBrush(item.Selected ? Color.FromArgb(49, 49, 49) : item.Checked ? Color.FromArgb(37, 37, 37) : SurfaceRaised);
+            using var fill = new SolidBrush(item.Selected ? Color.FromArgb(58, 58, 60) : item.Checked ? Color.FromArgb(50, 50, 52) : SurfaceRaised);
             e.Graphics.FillPath(fill, path);
         }
 
@@ -865,18 +884,20 @@ internal sealed class MainForm : Form
             if (item.Tag is DisplayMode mode)
             {
                 TextRenderer.DrawText(e.Graphics, $"{mode.Width} × {mode.Height}", e.TextFont,
-                    new Rectangle(12, 0, item.Width - 96, item.Height), foreground, flags);
+                    new Rectangle(12, 0, 90, item.Height), foreground, flags);
                 TextRenderer.DrawText(e.Graphics, $"{mode.Frequency} Hz", e.TextFont,
-                    new Rectangle(item.Width - 82, 0, 50, item.Height), TextMuted, flags | TextFormatFlags.Right);
+                    new Rectangle(110, 0, 44, item.Height), TextMuted, flags);
+                TextRenderer.DrawText(e.Graphics, mode.AspectRatio, e.TextFont,
+                    new Rectangle(162, 0, 46, item.Height), foreground, flags);
             }
             else if (item.Tag is MonitorTarget monitor)
             {
                 TextRenderer.DrawText(e.Graphics, monitor.ModelName, e.TextFont,
-                    new Rectangle(12, 0, 84, item.Height), foreground, flags);
+                    new Rectangle(12, 0, 82, item.Height), foreground, flags);
                 TextRenderer.DrawText(e.Graphics, $"{monitor.RefreshHz} Hz", e.TextFont,
-                    new Rectangle(102, 0, 55, item.Height), TextMuted, flags);
+                    new Rectangle(100, 0, 48, item.Height), TextMuted, flags);
                 TextRenderer.DrawText(e.Graphics, monitor.Enabled ? "enabled" : "disabled", e.TextFont,
-                    new Rectangle(168, 0, 60, item.Height), TextMuted, flags);
+                    new Rectangle(153, 0, 58, item.Height), TextMuted, flags);
             }
             else
                 TextRenderer.DrawText(e.Graphics, item.Text, e.TextFont,
@@ -897,10 +918,10 @@ internal sealed class MainForm : Form
         var card = new SoftSurfacePanel
         {
             Bounds = bounds,
-            BackColor = Color.FromArgb(23, 23, 23),
+            BackColor = Surface,
             ParentColor = Background,
-            OutlineColor = Color.FromArgb(43, 43, 43),
-            CornerRadius = 18
+            OutlineColor = Border,
+            CornerRadius = 14
         };
         return card;
     }
@@ -955,7 +976,7 @@ internal sealed class MainForm : Form
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
         button.FlatAppearance.BorderColor = kind == ButtonKind.Primary ? Accent : SurfaceRaised;
-        button.FlatAppearance.MouseOverBackColor = kind == ButtonKind.Primary ? Color.FromArgb(215, 215, 215) : Color.FromArgb(42, 42, 42);
+        button.FlatAppearance.MouseOverBackColor = kind == ButtonKind.Primary ? Color.FromArgb(215, 215, 215) : Color.FromArgb(58, 58, 60);
         button.BackColor = kind == ButtonKind.Primary ? Accent : SurfaceRaised;
         button.ForeColor = kind == ButtonKind.Primary ? AccentText : TextPrimary;
         button.Font = new Font("Segoe UI Semibold", 10F);
@@ -999,7 +1020,7 @@ internal sealed class MainForm : Form
             {
                 modeMenu.Items.Clear();
                 selectedMode = null;
-                modePicker.Text = "Display modes unavailable";
+                SetModePickerText(null, "Display modes unavailable");
                 modePicker.Enabled = false;
                 apply.Enabled = false;
                 status.Text = "Couldn't read display modes: " + ex.Message;
@@ -1022,7 +1043,7 @@ internal sealed class MainForm : Form
         }
         selectedMode = result.Choices.FirstOrDefault();
         modePicker.Enabled = selectedMode is not null;
-        modePicker.Text = selectedMode is null ? "No supported modes" : $"{selectedMode.Width} × {selectedMode.Height}   ·   {selectedMode.Frequency} Hz";
+        SetModePickerText(selectedMode, selectedMode is null ? "No supported modes" : $"{selectedMode.Width} × {selectedMode.Height} · {selectedMode.Frequency}Hz");
         FitModePicker();
         apply.Enabled = result.Choices.Count > 0 && selectedMonitor.CanChangeIndependently;
         status.Text = !selectedMonitor.CanChangeIndependently
@@ -1464,13 +1485,14 @@ internal sealed class MainForm : Form
     }
     private async Task<(bool Success, string Error)> SetAllMonitorsAsync(bool enabled, bool deviceOnly = false)
     {
-        // Capture a fresh set of EDID/path-identified active monitors before changing any device.
+        var targets = monitorTargets.ToArray();
         var result = await Task.Run(() =>
         {
             try
             {
-                var targets = MonitorControl.FindTargets();
-                if (targets.Count == 0) return (false, "No monitors could be identified safely.");
+                if (targets.Length == 0) return (false, "No monitors could be identified safely.");
+                var devices = NativeMonitorDevices.Enumerate();
+                if (!MonitorControl.AreActivePaths(targets, devices)) throw new IOException("Monitor paths changed; scan again.");
                 foreach (var target in targets)
                 {
                     var snapshot = monitorSnapshots.FirstOrDefault(s => string.Equals(s.InstanceId, target.InstanceId, StringComparison.OrdinalIgnoreCase));
@@ -1478,8 +1500,8 @@ internal sealed class MainForm : Form
                     if (snapshot.Enabled == enabled) continue;
                     recoveryGuard?.Send("WORKING");
                     changedMonitorIds.Add(snapshot.InstanceId);
-                    if (!MonitorControl.SetEnabled(snapshot.InstanceId, enabled, out var error)) throw new IOException(error);
-                    if (!MonitorControl.AreActivePaths(targets)) throw new IOException("A monitor left the active display topology. Changes were cancelled.");
+                    if (!MonitorControl.SetEnabled(snapshot.InstanceId, enabled, devices, out var error)) throw new IOException(error);
+                    if (!MonitorControl.AreActivePaths(targets, devices)) throw new IOException("A monitor left the active display topology. Changes were cancelled.");
                 }
                 foreach (var target in monitorTargets) target.Enabled = enabled;
                 return (true, "");
@@ -1503,7 +1525,6 @@ internal sealed class MainForm : Form
         }
         // Menu rows must reflect the new state, not their startup snapshot.
         RefreshMonitorMenuLabels();
-        UpdateMonitorStateButton();
         return result;
     }
 

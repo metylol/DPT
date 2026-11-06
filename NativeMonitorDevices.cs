@@ -54,11 +54,17 @@ internal static class NativeMonitorDevices
 
     internal static bool SetEnabled(string id, bool enabled, out string error)
     {
+        try { return SetEnabled(id, enabled, Enumerate(), out error); }
+        catch (Exception ex) when (ex is Win32Exception or IOException) { error = ex.Message; return false; }
+    }
+
+    internal static bool SetEnabled(string id, bool enabled, IReadOnlyCollection<Device> devices, out string error)
+    {
         error = "";
         try
         {
-            // Revalidate the exact instance belongs to the monitor class before a mutation.
-            var device = Enumerate().FirstOrDefault(d => string.Equals(d.InstanceId, id, StringComparison.OrdinalIgnoreCase));
+            // Use a fresh monitor-class snapshot, shared for the whole apply/restore batch.
+            var device = devices.FirstOrDefault(d => string.Equals(d.InstanceId, id, StringComparison.OrdinalIgnoreCase));
             if (device is null) { error = "Monitor device is no longer present."; return false; }
             if ((device.Problem != 22) == enabled) return true;
             var code = CM_Locate_DevNodeW(out var node, id, 0);

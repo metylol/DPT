@@ -8,7 +8,7 @@ Get **DPT.exe** from the [latest release](https://github.com/metylol/DPT/release
 
 ## Use
 
-1. Select a target display and a resolution exposed by its graphics driver.
+1. Select a target display and a resolution, or enter a custom size. DPT asks Windows' display driver to validate custom modes at the current refresh rate; if the driver rejects one, add it with CRU or the GPU vendor's software, restart the display driver, and reopen DPT.
 2. Select **Apply stretch preset**. DPT saves the original display, monitor-device, and scaling states, applies the selected mode, requests vendor or Windows scaling, and disables identified monitor devices that are currently enabled.
 3. Select **Keep changes** within 10 seconds. Otherwise, **Revert safely**, timeout, or closing DPT restores the recorded state. A separate recovery process attempts restoration if DPT stops responding.
 

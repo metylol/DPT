@@ -111,6 +111,17 @@ internal static class MonitorControl
         return NativeMonitorDevices.SetEnabled(instanceId, enabled, out error);
     }
 
+    internal static bool SetEnabled(string instanceId, bool enabled, IReadOnlyCollection<NativeMonitorDevices.Device> devices, out string error)
+    {
+        error = "";
+        if (!IsElevated())
+        {
+            error = "Device Manager changes require administrator permission. Restart the app as administrator.";
+            return false;
+        }
+        return NativeMonitorDevices.SetEnabled(instanceId, enabled, devices, out error);
+    }
+
     internal static bool IsActivePath(MonitorTarget target)
     {
         try
@@ -150,15 +161,17 @@ internal static class MonitorControl
             });
     }
 
-    private static List<PnpDto> ReadPnpDevices() => NativeMonitorDevices.Enumerate()
+    private static List<PnpDto> ReadPnpDevices() => ReadPnpDevices(NativeMonitorDevices.Enumerate());
+
+    private static List<PnpDto> ReadPnpDevices(IEnumerable<NativeMonitorDevices.Device> devices) => devices
         .Select(d => new PnpDto { InstanceId = d.InstanceId, FriendlyName = d.Name,
             HardwareIds = d.HardwareIds, ProblemCode = (int)d.Problem, Status = d.Problem == 0 ? "OK" : "Error" }).ToList();
 
-    internal static bool AreActivePaths(IEnumerable<MonitorTarget> targets)
+    internal static bool AreActivePaths(IEnumerable<MonitorTarget> targets, IReadOnlyCollection<NativeMonitorDevices.Device> deviceSnapshot)
     {
         try
         {
-            var devices = ReadPnpDevices();
+            var devices = ReadPnpDevices(deviceSnapshot);
             var activeIds = QueryActivePaths().Select(path => ResolveActivePathInstance(path, devices)?.InstanceId)
                 .Where(id => id is not null).ToHashSet(StringComparer.OrdinalIgnoreCase);
             return targets.All(target => activeIds.Contains(target.InstanceId));
