@@ -255,7 +255,7 @@ internal sealed class MainForm : Form
 {
     private static readonly HashSet<(int Width, int Height)> StandardStretchResolutions =
     [
-        (1440, 1080), (1568, 1050), (1024, 768),
+        (1680, 1050), (1440, 1080), (1280, 1024), (1280, 960), (1568, 1050), (1024, 768),
         (1568, 1080), (1440, 992), (1280, 882)
     ];
     private static readonly Color Background = Color.FromArgb(17, 17, 19);
